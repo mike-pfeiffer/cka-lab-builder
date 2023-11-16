@@ -1,0 +1,174 @@
+---
+- name: install k8s for cp
+  hosts:
+    - cps
+  become: true
+
+  tasks:
+    - name: update
+      command: apt-get update
+
+    - name: upgrade
+      command: apt-get upgrade -y
+
+    - name: vim
+      ansible.builtin.apt:
+        name: vim
+        state: present
+
+    - name: curl
+      ansible.builtin.apt:
+        name: curl
+        state: present
+
+    - name: apt-transport-https
+      ansible.builtin.apt:
+        name: apt-transport-https
+        state: present
+
+    - name: git
+      ansible.builtin.apt:
+        name: git
+        state: present
+
+    - name: gnupg2
+      ansible.builtin.apt:
+        name: gnupg2
+        state: present
+
+    - name: software-properties-common
+      ansible.builtin.apt:
+        name: software-properties-common
+        state: present
+
+    - name: lsb-release
+      ansible.builtin.apt:
+        name: lsb-release
+        state: present
+
+    - name: ca-certificates
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+
+    - name: uidmap
+      ansible.builtin.apt:
+        name: uidmap
+        state: present
+
+    - name: swapoff
+      command: swapoff -a
+
+    - name: overlay
+      command: modprobe overlay
+
+    - name: br_netfilter
+      command: modprobe br_netfilter
+
+    - name: kubernetes.conf
+      ansible.builtin.copy:
+        src: ./files/kubernetes.conf
+        dest: /etc/sysctl.d/kubernetes.conf
+
+    - name: kernel update
+      command: sysctl --system
+
+    - name: mkdir keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+
+    - name: install repositories
+      shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+    - name: add the docker repository to apt sources
+      command: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+
+    - name: update
+      command: apt-get update
+
+    - name: containerd
+      command: apt-get install containerd.io -y
+
+    - name: containerd config default file
+      ansible.builtin.copy:
+        src: ./files/config.toml
+        dest: /etc/containerd/config.toml
+
+    - name: containerd restart
+      command: systemctl restart containerd
+
+    - name: kubernetes.list
+      ansible.builtin.copy:
+        src: ./files/kubernetes.list
+        dest: /etc/apt/sources.list.d/kubernetes.list
+
+    - name: install repositories
+      shell: curl  -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+
+    - name: update
+      command: apt-get update
+
+    - name: kubeadm=1.25.1-00
+      command: apt-get install -y kubeadm=1.25.1-00 --allow-downgrades
+
+    - name: kubelet=1.25.1-00
+      command: apt-get install -y kubelet=1.25.1-00 --allow-downgrades
+
+    - name: kubectl=1.25.1-00
+      command: apt-get install -y kubectl=1.25.1-00 --allow-downgrades
+
+    - name: hold k8s version
+      command: apt-mark hold kubelet kubeadm kubectl
+
+    - name: add k8scp dns entry
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: 10.68.0.10 k8scp
+
+    - name: kubeadm-config.yaml
+      ansible.builtin.copy:
+        src: ./files/kubeadm-config.yaml
+        dest: /home/ubuntu/kubeadm-config.yaml
+
+    - name: kubeadm init
+      shell: >
+        kubeadm init --config=kubeadm-config.yaml --upload-certs \
+        | tee kubeadm-init.out
+
+    - name: mkdir kube
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+
+    - name: copy admin.conf to kube config
+      command: cp -i /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+
+    - name: change permissions
+      command: chown ubuntu:sudo /home/ubuntu/.kube/config
+
+    - name: download calico file
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml
+        dest: /home/ubuntu/calico.yaml
+
+    - name: copy admin.conf to home dir
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/admin.conf
+        remote_src: yes
+
+    - name: apply calico settings
+      command: kubectl apply -f calico.yaml
+      environment:
+        KUBECONFIG: /home/ubuntu/admin.conf
+
+    - name: bash completion
+      ansible.builtin.apt:
+        name: bash-completion
+        state: present
+
+    - name: add kubectl completion bash
+      ansible.builtin.lineinfile:
+        path: /home/ubuntu/.bashrc
+        line: source <(kubectl completion bash)

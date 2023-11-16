@@ -1,0 +1,11 @@
+---
+- name: rename hosts 
+  hosts: 
+    - cps
+    - workers
+  become: true
+ 
+  tasks:
+    - name: change hostname
+      hostname:
+        name: "{{ inventory_hostname }}"

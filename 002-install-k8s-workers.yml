@@ -1,0 +1,191 @@
+---
+- name: install k8s for workers
+  hosts:
+    - cps
+    - workers
+  become: true
+
+  tasks:
+    - name: update
+      command: apt-get update
+      when: inventory_hostname in groups["workers"]
+
+    - name: upgrade
+      command: apt-get upgrade -y
+      when: inventory_hostname in groups["workers"]
+
+    - name: vim
+      ansible.builtin.apt:
+        name: vim
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: curl
+      ansible.builtin.apt:
+        name: curl
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: apt-transport-https
+      ansible.builtin.apt:
+        name: apt-transport-https
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: git
+      ansible.builtin.apt:
+        name: git
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: gnupg2
+      ansible.builtin.apt:
+        name: gnupg2
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: software-properties-common
+      ansible.builtin.apt:
+        name: software-properties-common
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: lsb-release
+      ansible.builtin.apt:
+        name: lsb-release
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: ca-certificates
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: uidmap
+      ansible.builtin.apt:
+        name: uidmap
+        state: present
+      when: inventory_hostname in groups["workers"]
+
+    - name: swapoff
+      command: swapoff -a
+      when: inventory_hostname in groups["workers"]
+
+    - name: overlay
+      command: modprobe overlay
+      when: inventory_hostname in groups["workers"]
+
+    - name: br_netfilter
+      command: modprobe br_netfilter
+      when: inventory_hostname in groups["workers"]
+
+    - name: kubernetes.conf
+      ansible.builtin.copy:
+        src: ./files/kubernetes.conf
+        dest: /etc/sysctl.d/kubernetes.conf
+      when: inventory_hostname in groups["workers"]
+
+    - name: kernel update
+      command: sysctl --system
+      when: inventory_hostname in groups["workers"]
+
+    - name: mkdir keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+      when: inventory_hostname in groups["workers"]
+
+    - name: install repositories
+      shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+      when: inventory_hostname in groups["workers"]
+
+    - name: add the docker repository to apt sources
+      command: add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+      when: inventory_hostname in groups["workers"]
+
+    - name: update
+      command: apt-get update
+      when: inventory_hostname in groups["workers"]
+
+    - name: containerd
+      command: apt-get install containerd.io -y
+      when: inventory_hostname in groups["workers"]
+
+    - name: containerd config default file
+      ansible.builtin.copy:
+        src: ./files/config.toml
+        dest: /etc/containerd/config.toml
+      when: inventory_hostname in groups["workers"]
+
+    - name: containerd restart
+      command: systemctl restart containerd
+      when: inventory_hostname in groups["workers"]
+
+    - name: kubernetes.list
+      ansible.builtin.copy:
+        src: ./files/kubernetes.list
+        dest: /etc/apt/sources.list.d/kubernetes.list
+      when: inventory_hostname in groups["workers"]
+
+    - name: install repositories
+      shell: curl  -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+      when: inventory_hostname in groups["workers"]
+
+    - name: update
+      command: apt-get update
+      when: inventory_hostname in groups["workers"]
+
+    - name: kubeadm=1.25.1-00
+      command: apt-get install -y kubeadm=1.25.1-00 --allow-downgrades
+      when: inventory_hostname in groups["workers"]
+
+    - name: kubelet=1.25.1-00
+      command: apt-get install -y kubelet=1.25.1-00 --allow-downgrades
+      when: inventory_hostname in groups["workers"]
+
+    - name: kubectl=1.25.1-00
+      command: apt-get install -y kubectl=1.25.1-00 --allow-downgrades
+      when: inventory_hostname in groups["workers"]
+
+    - name: hold k8s version
+      command: apt-mark hold kubelet kubeadm kubectl
+      when: inventory_hostname in groups["workers"]
+
+    - name: add k8scp dns entry
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: 10.68.0.10 k8scp
+      when: inventory_hostname in groups["workers"]
+
+    - name: generate cp token 1
+      command: kubeadm token create
+      register: token
+      when: inventory_hostname in groups["cps"]
+
+    - name: Register dummy host with variable
+      add_host:
+        name: "dummy-1"
+        token: "{{ token.stdout }}"
+
+    - name: join worker 1
+      command: >
+        kubeadm join --token "{{ hostvars['dummy-1']['token'] }}" \
+        k8scp:6443 --discovery-token-unsafe-skip-ca-verification
+      when: "'worker-1' in inventory_hostname"
+
+    - name: generate cp token 2
+      command: kubeadm token create
+      register: token
+      when: inventory_hostname in groups["cps"]
+
+    - name: Register dummy host with variable
+      add_host:
+        name: "dummy-2"
+        token: "{{ token.stdout }}"
+
+    - name: join worker 2
+      command: >
+        kubeadm join --token "{{ hostvars['dummy-1']['token'] }}" \
+        k8scp:6443 --discovery-token-unsafe-skip-ca-verification
+      when: "'worker-2' in inventory_hostname"
